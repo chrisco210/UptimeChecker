@@ -1,0 +1,19 @@
+{
+  "name": "uptimechecker",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.0.1",
+    "googleapis": "^105.0.0",
+    "moment": "^2.29.4",
+    "node-mailer": "^0.1.1",
+    "request": "^2.88.0",
+    "request-promise-native": "^1.0.7"
+  }
+}

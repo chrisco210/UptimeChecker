@@ -1,0 +1,5 @@
+node_modules/
+googleimapapisecrets.json
+.env
+status.json
+tokens.json
