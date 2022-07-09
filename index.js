@@ -15,7 +15,6 @@ var status = JSON.parse(fs.readFileSync(STATUS_FILE));
 const SEND_EMAIL = "chrisrachlinski@gmail.com";
 const BCC = "";
 const SERVER = "https://rachlinski.net";
-const MC_SERVER = "mc.rachlinski.net:25565";
 
 // The time between follow up emails, in hours
 const FOLLOW_UP_TIME = 10;
@@ -140,7 +139,7 @@ async function sendMail(subject, body) {
   let transporter = await createTransporter();
 
   return new Promise((resolve, reject) => {
-    var mailOptions = {
+    let mailOptions = {
       from: process.env.EMAIL,
       to: SEND_EMAIL,
       bcc: BCC,
@@ -162,7 +161,7 @@ if (process.argv[2] == "test") {
   console.log("Sending test mail");
   sendMail("[Test] Test of RachlinskiNET Downtime checker", "test test test");
 } else {
-  var m = moment().format(DATE_FORMAT_STRING);
+  let m = moment().format(DATE_FORMAT_STRING);
 
   console.log("Checking uptime");
   pingServer(SERVER, m);
