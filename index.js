@@ -6,11 +6,15 @@ const { google } = require("googleapis");
 const OAuth2 = google.auth.OAuth2;
 require("dotenv").config();
 
+const ms = require("minestat");
+
+const EMAIL_HEADER =
+  "RachlinskiNET Downtime Detector Summary\nThis list only includes services that are down.\n----------------------------\n";
+
 const DATE_FORMAT_STRING = "MM-DD-YYYY HH:mm:ss";
 
 // Status object of last downtime
 const STATUS_FILE = "./status.json";
-var status = JSON.parse(fs.readFileSync(STATUS_FILE));
 
 const SEND_EMAIL = "chrisrachlinski@gmail.com";
 const BCC = "";
@@ -60,79 +64,28 @@ async function createTransporter() {
   return transporter;
 }
 
-function pingServer(ip, time) {
-  rp(ip)
-    .then((html) => {
-      console.log("Server is up.");
-      status.down = false;
+function websiteStatus(ip) {
+  return new Promise((resolve, reject) => {
+    rp(ip)
+      .then((res) => {
+        resolve(res);
+      })
+      .catch((err) => {
+        reject(err);
+      });
+  });
+}
 
-      let lastDownMoment = moment(
-        status.lastDowntimeNotification,
-        DATE_FORMAT_STRING
-      );
-
-      if (moment().isAfter(lastDownMoment.add(HEARTBEAT_INTERVAL, "d"))) {
-        console.log("Sending heartbeat notification");
-        sendMail(
-          `[Notification] Downtime detector still working.`,
-          `Weekly notification.  RachlinskiNET is still up. Last crash detected at ${status.lastCrashDetected}.`
-        );
-        status.lastDowntimeNotification = time;
-      }
-
-      fs.writeFileSync(STATUS_FILE, JSON.stringify(status));
-    })
-    .catch((err) => {
-      // If server is already down, we do not need to send another email
-      if (status.down) {
-        var lastDownMoment = moment(
-          status.lastDowntimeNotification,
-          DATE_FORMAT_STRING
-        );
-        var crashTime = moment(status.lastCrashDetected, DATE_FORMAT_STRING);
-
-        console.log(
-          `Server still down. Crash time ${crashTime}. last down moment: ${lastDownMoment}`
-        );
-
-        if (moment().isAfter(lastDownMoment.add(FOLLOW_UP_TIME, "h"))) {
-          console.log(`Server still down, sending follow up email`);
-          console.log(
-            `Last email sent: ${lastDownMoment}, Currently: ${crashTime}`
-          );
-          sendMail(
-            `[Warning] [${moment().format(
-              DATE_FORMAT_STRING
-            )}] Server is still down.`,
-            `Server was detected as down at ${crashTime} and is still offline.\nDetails:\n` +
-              `URL Pinged: ${ip}\nStatus Code: ${err.statusCode}\n` +
-              `Error Response Below:` +
-              `\n\n------- Error Response -------\n\n${JSON.stringify(err)}`
-          );
-
-          status.lastDowntimeNotification = time;
-        } else {
-          console.log("Not sending email");
-        }
-        fs.writeFileSync(STATUS_FILE, JSON.stringify(status));
+function minecraftStatus(ip, port) {
+  return new Promise((resolve, reject) => {
+    ms.init(ip, port, () => {
+      if (ms.online) {
+        resolve();
       } else {
-        console.error("Server down, sending email.");
-        //console.error(JSON.stringify(err));
-        sendMail(
-          `[Warning] [${time}] Server did not respond to ping`,
-          `Server was detected as down at ${time}.\n` +
-            `URL Pinged: ${ip}\nStatus Code: ${err.statusCode}\n` +
-            `Error response below:` +
-            `\n\n------- Error Response -------\n\n${JSON.stringify(err)}`
-        );
-
-        status.down = true;
-        status.lastDowntimeNotification = time;
-        status.lastCrashDetected = time;
-
-        fs.writeFileSync(STATUS_FILE, JSON.stringify(status));
+        reject(ms.online);
       }
     });
+  });
 }
 
 async function sendMail(subject, body) {
@@ -157,12 +110,234 @@ async function sendMail(subject, body) {
   });
 }
 
+/**
+ * @typedef status
+ * @type {{url: String, type: String, unreachable: Boolean, status: Any, response: String, retrievedAt: Any, lastNotification: String}} status
+ */
+
+/**
+ *
+ * @param {status} curStatus
+ * @param {Array<status>} oldStatuses
+ * @return {boolean}
+ */
+function shouldSendEmail(curStatus, oldStatuses) {
+  // Expected behavior is that we only send an email if a service that was
+  // online before is down OR we have reached the nudge threshold.
+  //if (moment().isAfter(lastDownMoment.add(FOLLOW_UP_TIME, "h")))
+
+  if (curStatus.unreachable) {
+    // If we are unreachable, we need to check if the same website
+    // was previously not down if we want to email, or the last notification
+    // was a long time ago
+    let matchingOldStatuses = oldStatuses.filter((oldStatus) => {
+      return oldStatus.url == curStatus.url;
+    });
+
+    // If there is no previous entry, then we should go ahead
+    if (matchingOldStatuses.length == 0) {
+      return true;
+    } else {
+      // We should only have one entry here if the websites are unique
+      // which they are supposed to be
+      let prevStatus = matchingOldStatuses[0];
+
+      return (
+        !prevStatus.unreachable ||
+        moment().isAfter(
+          moment(prevStatus.lastNotification, DATE_FORMAT_STRING).add(
+            FOLLOW_UP_TIME,
+            "h"
+          )
+        )
+      );
+    }
+  } else {
+    // If the service is reachable, dont send email
+    return false;
+  }
+}
+
+/**
+ *
+ * @param {status} status
+ * @return {String}
+ */
+function asStatusString(status) {
+  if (status.unreachable) {
+    return `${status.type} at ${status.url} is unreachable as of ${status.retrievedAt}.\nStatus: ${status.status}\nResponse: ${status.response}\n`;
+  } else {
+    return `${status.type} at ${status.url} is reachable.\n`;
+  }
+}
+
+/**
+ *
+ * @param {Array<status>} statuses
+ * @return {{body: string, subject: string}}
+ */
+function createEmailString(statuses) {
+  let body =
+    EMAIL_HEADER +
+    statuses.reduce((acc, cur) => {
+      return acc + "\n\n" + asStatusString(cur);
+    }, "");
+
+  let subject = statuses.some((status) => status.unreachable)
+    ? "[RachlinskiNET][SERVICE DOWN] A service was detected as down!"
+    : "[RachlinskiNET] All services operational!";
+
+  return { subject, body };
+}
+
+/**
+ * Returns a string with the last update time, or if not found, a time
+ * from a long time ago
+ * @param {string} status
+ * @param {Array<status>} oldStatuses
+ * @return {string}
+ */
+function getLastNotification(status, oldStatuses) {
+  let matchingOldStatuses = oldStatuses.filter((oldStatus) => {
+    return oldStatus.url == status;
+  });
+
+  if (matchingOldStatuses.length == 0) {
+    return moment(1).format(DATE_FORMAT_STRING);
+  } else {
+    return matchingOldStatuses[0].lastNotification;
+  }
+}
+
+const WEBSITES = ["https://rachlinski.net", "https://blog.rachlinski.net"];
+
+const MC_SERVERS = ["mc.rachlinski.net"];
+
+if (!fs.existsSync(STATUS_FILE)) {
+  fs.writeFileSync(STATUS_FILE, JSON.stringify([]));
+}
+
 if (process.argv[2] == "test") {
   console.log("Sending test mail");
   sendMail("[Test] Test of RachlinskiNET Downtime checker", "test test test");
 } else {
-  let m = moment().format(DATE_FORMAT_STRING);
+  let currentTime = moment().format(DATE_FORMAT_STRING);
 
-  console.log("Checking uptime");
-  pingServer(SERVER, m);
+  /**
+   * @type {Array<status>}
+   */
+  let latestStatus = [];
+  let oldStatus = JSON.parse(fs.readFileSync(STATUS_FILE));
+
+  console.log("Checking website status");
+
+  let websitePromises = WEBSITES.map((site) => {
+    console.log(`Checking website ${site}`);
+    return websiteStatus(site)
+      .then((res) => {
+        let curStat = {
+          url: site,
+          type: "website",
+          unreachable: false,
+          status: res.statusCode,
+          response: res.message,
+          retrievedAt: currentTime,
+          lastNotification: getLastNotification(site, oldStatus),
+        };
+
+        console.log(`Website ${site} was reachable`);
+        latestStatus.push(curStat);
+      })
+      .catch((err) => {
+        let curStat = {
+          url: site,
+          type: "website",
+          unreachable: true,
+          status: err.statusCode,
+          response: err.message,
+          retrievedAt: currentTime,
+          lastNotification: getLastNotification(site, oldStatus),
+        };
+
+        // console.log("Body:" + err.message);
+        // console.log("Status:" + err.statusCode);
+        // console.log(err);
+
+        console.log(`Website ${site} was unreachable`);
+        latestStatus.push(curStat);
+      });
+  });
+
+  console.log("Checking minecraft server status");
+  let mcServerPromises = MC_SERVERS.map((srv) => {
+    console.log(`Checking server ${srv}`);
+
+    return minecraftStatus(srv, 25565)
+      .then((res) => {
+        let curStat = {
+          url: srv,
+          type: "minecraft server",
+          unreachable: false,
+          response: "",
+          status: 200,
+          retrievedAt: currentTime,
+          lastNotification: getLastNotification(srv, oldStatus),
+        };
+
+        console.log(`Server ${srv} was reachable`);
+
+        latestStatus.push(curStat);
+      })
+      .catch((err) => {
+        let curStat = {
+          type: "minecraft server",
+          url: srv,
+          unreachable: true,
+          retrievedAt: currentTime,
+          status: err,
+          response: "",
+          lastNotification: getLastNotification(srv, oldStatus),
+        };
+
+        console.log(`Server ${srv} was unreachable`);
+
+        latestStatus.push(curStat);
+      });
+  });
+
+  Promise.all(mcServerPromises.concat(websitePromises))
+    .then((_) => {
+      console.log("Done checking status");
+      //      console.log(`Status: ${JSON.stringify(latestStatus)}`);
+
+      /**
+       * @type {Array<status>}
+       */
+
+      let toNotifyOn = latestStatus.filter((status) => {
+        return shouldSendEmail(status, oldStatus);
+      });
+
+      if (toNotifyOn.length > 0) {
+        console.log("Generating email subject and body");
+        let { subject, body } = createEmailString(toNotifyOn);
+
+        //sendMail(subject, body);
+        console.log("body:");
+        console.log(body);
+        console.log("subject:");
+        console.log(subject);
+
+        toNotifyOn.forEach((status) => {
+          status.lastNotification = currentTime;
+        });
+      } else {
+        console.log("No services found to notify on.");
+      }
+
+      fs.writeFileSync(STATUS_FILE, JSON.stringify(latestStatus));
+    })
+    .catch((err) => {
+      console.log(err);
+    });
 }
