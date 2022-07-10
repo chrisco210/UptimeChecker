@@ -322,7 +322,7 @@ if (process.argv[2] == "test") {
         console.log("Generating email subject and body");
         let { subject, body } = createEmailString(toNotifyOn);
 
-        //sendMail(subject, body);
+        sendMail(subject, body);
         console.log("body:");
         console.log(body);
         console.log("subject:");
