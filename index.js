@@ -8,6 +8,10 @@ require("dotenv").config();
 
 const ms = require("minestat");
 
+// Change these to specify things to check
+const WEBSITES = ["https://rachlinski.net", "https://blog.rachlinski.net"];
+const MC_SERVERS = ["mc.rachlinski.net"];
+
 const EMAIL_HEADER =
   "RachlinskiNET Downtime Detector Summary\nThis list only includes services that are down.\n----------------------------\n";
 
@@ -208,10 +212,6 @@ function getLastNotification(status, oldStatuses) {
     return matchingOldStatuses[0].lastNotification;
   }
 }
-
-const WEBSITES = ["https://rachlinski.net", "https://blog.rachlinski.net"];
-
-const MC_SERVERS = ["mc.rachlinski.net"];
 
 if (!fs.existsSync(STATUS_FILE)) {
   fs.writeFileSync(STATUS_FILE, JSON.stringify([]));
