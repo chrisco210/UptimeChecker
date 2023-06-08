@@ -34,6 +34,7 @@ const HEARTBEAT_INTERVAL = 7;
 // Shamelessly stolen from
 // https://dev.to/chandrapantachhetri/sending-emails-securely-using-node-js-nodemailer-smtp-gmail-and-oauth2-g3a
 async function createTransporter() {
+  console.log("Creating transport");
   const oauth2client = new OAuth2(
     process.env.CLIENT_ID,
     process.env.CLIENT_SECRET,
@@ -47,7 +48,8 @@ async function createTransporter() {
   const accessToken = await new Promise((resolve, reject) => {
     oauth2client.getAccessToken((err, token) => {
       if (err) {
-        reject();
+        console.error("Error in creating token, rejecting.");
+        reject(err);
       }
       resolve(token);
     });
@@ -93,8 +95,10 @@ function minecraftStatus(ip, port) {
 }
 
 async function sendMail(subject, body) {
+  console.log("Sending mail: " + subject + " with body: " + body);
   let transporter = await createTransporter();
 
+  console.log("Transport created");
   return new Promise((resolve, reject) => {
     let mailOptions = {
       from: process.env.EMAIL,
@@ -106,8 +110,10 @@ async function sendMail(subject, body) {
 
     transporter.sendMail(mailOptions, function (error, info) {
       if (error) {
+        console.log(error);
         reject(error);
       } else {
+        console.log(info);
         resolve(info);
       }
     });
@@ -219,7 +225,11 @@ if (!fs.existsSync(STATUS_FILE)) {
 
 if (process.argv[2] == "test") {
   console.log("Sending test mail");
-  sendMail("[Test] Test of RachlinskiNET Downtime checker", "test test test");
+  let r = sendMail(
+    "[Test] Test of RachlinskiNET Downtime checker",
+    "test test test"
+  );
+  r.then((res) => console.log(res)).catch((err) => console.error(err));
 } else {
   let currentTime = moment().format(DATE_FORMAT_STRING);
 
