@@ -9,7 +9,11 @@ require("dotenv").config();
 const ms = require("minestat");
 
 // Change these to specify things to check
-const WEBSITES = ["https://rachlinski.net", "https://blog.rachlinski.net"];
+const WEBSITES = [
+  "https://rachlinski.net",
+  "https://blog.rachlinski.net",
+  "https://192.168.1.150:8080",
+];
 const MC_SERVERS = ["mc.rachlinski.net"];
 
 const EMAIL_HEADER =
@@ -28,13 +32,16 @@ const SERVER = "https://rachlinski.net";
 const FOLLOW_UP_TIME = 10;
 
 // Time in days between heartbeat interval to make sure account
-// still works
-const HEARTBEAT_INTERVAL = 7;
+// still works, in days
+const HEARTBEAT_INTERVAL = 14;
 
 // Shamelessly stolen from
 // https://dev.to/chandrapantachhetri/sending-emails-securely-using-node-js-nodemailer-smtp-gmail-and-oauth2-g3a
-async function createTransporter() {
+async function createOauthTransporter() {
   console.log("Creating transport");
+  console.log(
+    `ClientID: ${process.env.CLIENT_ID}.  ClientSecret: ${process.env.CLIENT_SECRET}.  RefreshToken: ${process.env.REFRESH_TOKEN}`
+  );
   const oauth2client = new OAuth2(
     process.env.CLIENT_ID,
     process.env.CLIENT_SECRET,
@@ -70,6 +77,23 @@ async function createTransporter() {
   return transporter;
 }
 
+function createHotmailTransport() {
+  console.log(process.env.PASSWORD);
+
+  const transporter = nodemailer.createTransport({
+    // service: "hotmail",
+    host: "smtp.office365.com",
+    port: 587,
+    secure: false, // STARTTLS
+    auth: {
+      user: process.env.EMAIL,
+      pass: process.env.PASSWORD,
+    },
+  });
+
+  return transporter;
+}
+
 function websiteStatus(ip) {
   return new Promise((resolve, reject) => {
     rp(ip)
@@ -96,7 +120,7 @@ function minecraftStatus(ip, port) {
 
 async function sendMail(subject, body) {
   console.log("Sending mail: " + subject + " with body: " + body);
-  let transporter = await createTransporter();
+  let transporter = await createHotmailTransport(); //createOauthTransporter();
 
   console.log("Transport created");
   return new Promise((resolve, reject) => {
@@ -219,6 +243,21 @@ function getLastNotification(status, oldStatuses) {
   }
 }
 
+/**
+ * Returns the last time an email was sent in the oldStatuses
+ * @param {Array<status>} oldStatuses
+ * @return {string}
+ */
+function getLastEmailSendTime(oldStatuses) {
+  return moment
+    .max(
+      oldStatuses.map((status) =>
+        moment(status.lastNotification, DATE_FORMAT_STRING)
+      )
+    )
+    .format(DATE_FORMAT_STRING);
+}
+
 if (!fs.existsSync(STATUS_FILE)) {
   fs.writeFileSync(STATUS_FILE, JSON.stringify([]));
 }
@@ -328,8 +367,25 @@ if (process.argv[2] == "test") {
         return shouldSendEmail(status, oldStatus);
       });
 
+      let lastEmailSend = getLastEmailSendTime(latestStatus);
+      console.log("Last email send time: " + lastEmailSend);
+
+      let shouldSendHeartbeat = moment().isAfter(
+        moment(lastEmailSend, DATE_FORMAT_STRING).add(HEARTBEAT_INTERVAL, "d")
+      );
+
+      console.log(`ShouldSendHeartbeat: ${shouldSendHeartbeat}`);
+
+      if (shouldSendHeartbeat && toNotifyOn.length == 0) {
+        console.log(
+          "Nothing to notify on and should send heartbeat.  Appending notifications."
+        );
+        toNotifyOn = toNotifyOn.concat(latestStatus);
+      }
+
       if (toNotifyOn.length > 0) {
         console.log("Generating email subject and body");
+
         let { subject, body } = createEmailString(toNotifyOn);
 
         sendMail(subject, body);
