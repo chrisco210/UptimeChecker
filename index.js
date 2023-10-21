@@ -9,11 +9,7 @@ require("dotenv").config();
 const ms = require("minestat");
 
 // Change these to specify things to check
-const WEBSITES = [
-  "https://rachlinski.net",
-  "https://blog.rachlinski.net",
-  "https://192.168.1.150:8080",
-];
+const WEBSITES = ["https://rachlinski.net", "https://blog.rachlinski.net"];
 const MC_SERVERS = ["mc.rachlinski.net"];
 
 const EMAIL_HEADER =
