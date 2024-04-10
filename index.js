@@ -73,9 +73,17 @@ async function createOauthTransporter() {
   return transporter;
 }
 
-function createHotmailTransport() {
-  console.log(process.env.PASSWORD);
+function createGmailAppPasswordTransport() {
+  return nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: process.env.EMAIL,
+      pass: process.env.PASSWORD,
+    },
+  });
+}
 
+function createHotmailTransport() {
   const transporter = nodemailer.createTransport({
     // service: "hotmail",
     host: "smtp.office365.com",
@@ -116,7 +124,7 @@ function minecraftStatus(ip, port) {
 
 async function sendMail(subject, body) {
   console.log("Sending mail: " + subject + " with body: " + body);
-  let transporter = await createHotmailTransport(); //createOauthTransporter();
+  let transporter = await createGmailAppPasswordTransport();
 
   console.log("Transport created");
   return new Promise((resolve, reject) => {
